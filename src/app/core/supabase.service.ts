@@ -2,6 +2,11 @@ import { Injectable, signal } from '@angular/core';
 import { createClient, Session, SupabaseClient, User } from '@supabase/supabase-js';
 import { environment } from '../../environments/environment';
 
+/** False until the real control-plane project URL/key replace the scaffold
+ *  placeholders — createClient() throws on an invalid URL, which would
+ *  otherwise blank the whole app at boot with no visible error. */
+const IS_CONFIGURED = /^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(environment.supabaseUrl);
+
 export interface ConnectedProject {
   id: string;
   owner_id: string;
@@ -43,13 +48,21 @@ export interface ActivityRow {
  *  credentials never reach the browser. */
 @Injectable({ providedIn: 'root' })
 export class SupabaseService {
-  readonly client: SupabaseClient = createClient(environment.supabaseUrl, environment.supabaseAnonKey);
+  readonly configured = IS_CONFIGURED;
+  readonly client: SupabaseClient = createClient(
+    IS_CONFIGURED ? environment.supabaseUrl : 'https://placeholder.supabase.co',
+    IS_CONFIGURED ? environment.supabaseAnonKey : 'placeholder',
+  );
 
   readonly session = signal<Session | null>(null);
   readonly user = signal<User | null>(null);
   readonly ready = signal(false);
 
   async init(): Promise<void> {
+    if (!IS_CONFIGURED) {
+      this.ready.set(true);
+      return;
+    }
     const { data } = await this.client.auth.getSession();
     this.session.set(data.session);
     this.user.set(data.session?.user ?? null);

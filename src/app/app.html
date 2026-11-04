@@ -1,4 +1,12 @@
-@if (supabase.ready()) {
+@if (!supabase.configured) {
+  <div class="grid min-h-dvh place-items-center bg-slate-50 px-5">
+    <div class="card max-w-sm p-6 text-center">
+      <img src="/brand/spreadapps-icon.png" alt="" class="mx-auto size-10" />
+      <h1 class="mt-3 text-base font-bold text-slate-800">Not set up yet</h1>
+      <p class="mt-1.5 text-sm text-slate-500">This app's control-plane Supabase project hasn't been connected. Set the real URL/key in <code class="font-mono text-xs">environment.ts</code>.</p>
+    </div>
+  </div>
+} @else if (supabase.ready()) {
   <router-outlet />
 } @else {
   <div class="grid min-h-dvh place-items-center bg-slate-50">
