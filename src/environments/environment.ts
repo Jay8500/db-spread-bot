@@ -5,6 +5,9 @@ export const environment = {
   production: true,
   supabaseUrl: 'https://dxmgmfoufotcobvuhqrw.supabase.co',
   supabaseAnonKey: 'sb_publishable_qhzQPEYx-Q8PzSK7UGGJFw_4LllN8Wa',
+  // "Connect with Supabase" OAuth app (org settings → OAuth Apps). The client
+  // ID is public; the secret lives only in the edge function's secrets.
+  supabaseOAuthClientId: '1e4e6bcb-1f3f-4a77-ac5f-bc796587a567',
   brand: {
     name: 'Spread Apps',
     product: 'DB Spread Bot',

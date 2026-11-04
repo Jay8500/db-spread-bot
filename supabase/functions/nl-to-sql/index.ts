@@ -7,6 +7,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { cors, json as baseJson } from '../_shared/http.ts';
 import { fetchSchema } from '../_shared/management.ts';
+import { projectAccessToken } from '../_shared/tokens.ts';
 
 // Tried in order. Google retires older models for new keys and the newest one
 // often returns 503 "high demand" on the free tier, so fall through on
@@ -167,13 +168,13 @@ Deno.serve(async (req) => {
 
     const { data: project } = await admin
       .from('connected_projects')
-      .select('id, project_ref, owner_id')
+      .select('id, project_ref, owner_id, connection_id')
       .eq('id', projectId)
       .eq('owner_id', u.user.id)
       .single();
     if (!project) return json({ error: 'Project not found.' }, 404);
 
-    const { data: pat } = await admin.rpc('get_project_pat', { p_project_id: projectId });
+    const pat = await projectAccessToken(admin, project);
     mark('project_and_token');
     if (!pat) return json({ error: 'No token saved for this project yet.' }, 400);
 

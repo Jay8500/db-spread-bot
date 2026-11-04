@@ -15,6 +15,7 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'query' },
       { path: 'query', loadComponent: () => import('./pages/query/query').then((m) => m.Query) },
       { path: 'projects', loadComponent: () => import('./pages/projects/projects').then((m) => m.Projects) },
+      { path: 'connect/callback', loadComponent: () => import('./pages/connect/connect-callback').then((m) => m.ConnectCallback) },
       { path: 'activity', loadComponent: () => import('./pages/log/activity-log').then((m) => m.ActivityLog) },
     ],
   },

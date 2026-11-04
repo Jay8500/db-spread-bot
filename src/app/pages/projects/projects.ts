@@ -15,7 +15,19 @@ import { ToastService } from '../../core/toast.service';
         <p class="mt-1 text-sm text-slate-500">Every project here starts read-only. Switch on writes only when you mean to change data.</p>
       </div>
       @if (!showForm()) {
-        <button class="btn-primary shrink-0" (click)="openForm()"><lucide-icon name="plus" class="size-4" /> Add project</button>
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <button class="btn-primary" (click)="connectSupabase()" [disabled]="connecting()">
+            @if (connecting()) {
+              <lucide-icon name="refresh-cw" class="size-4 animate-spin" />
+            } @else {
+              <lucide-icon name="plus" class="size-4" />
+            }
+            Connect Supabase
+          </button>
+          <button class="btn-ghost" (click)="openForm()" title="Add a project with a personal access token instead">
+            <lucide-icon name="key-round" class="size-4" /> Use a token
+          </button>
+        </div>
       }
     </div>
 
@@ -94,7 +106,9 @@ import { ToastService } from '../../core/toast.service';
             <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand"><lucide-icon name="database" class="size-5" /></span>
             <div class="min-w-0">
               <p class="truncate text-sm font-bold text-slate-800">{{ p.name }}</p>
-              <p class="truncate font-mono text-xs text-slate-400">{{ p.project_ref }}</p>
+              <p class="truncate font-mono text-xs text-slate-400">
+                {{ p.project_ref }} · <span class="font-sans">{{ p.connection_id ? 'Supabase login' : 'Access token' }}</span>
+              </p>
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -103,13 +117,20 @@ import { ToastService } from '../../core/toast.service';
               {{ p.allow_writes ? 'Writes allowed' : 'Read-only' }}
             </span>
             <button class="btn-ghost" (click)="toggleWrites(p)">{{ p.allow_writes ? 'Make read-only' : 'Allow writes' }}</button>
-            <button class="btn-ghost" (click)="updateToken(p)" title="Update token"><lucide-icon name="key-round" class="size-4" /></button>
+            @if (p.connection_id) {
+              <button class="btn-ghost" (click)="connectSupabase()" title="Reconnect Supabase"><lucide-icon name="refresh-cw" class="size-4" /></button>
+            } @else {
+              <button class="btn-ghost" (click)="updateToken(p)" title="Update token"><lucide-icon name="key-round" class="size-4" /></button>
+            }
             <button class="btn-danger" (click)="remove(p)" title="Remove"><lucide-icon name="trash-2" class="size-4" /></button>
           </div>
         </div>
       } @empty {
         @if (!showForm()) {
-          <div class="card p-8 text-center text-sm text-slate-400">No projects connected yet. Add one to start asking questions in plain English.</div>
+          <div class="card space-y-3 p-8 text-center">
+            <p class="text-sm text-slate-500">No projects connected yet.</p>
+            <p class="text-xs text-slate-400">Click <strong>Connect Supabase</strong>, sign in to your Supabase account and pick your projects — about 30 seconds, nothing to copy.</p>
+          </div>
         }
       }
     </div>
@@ -128,6 +149,7 @@ export class Projects implements OnInit {
   protected readonly projectUrl = signal('');
   protected readonly pat = signal('');
   protected readonly showPat = signal(false);
+  protected readonly connecting = signal(false);
 
   async ngOnInit() {
     await this.load();
@@ -138,6 +160,16 @@ export class Projects implements OnInit {
       this.projects.set(await this.supabase.listProjects());
     } catch (e) {
       this.toast.fail(e, 'Could not load projects.');
+    }
+  }
+
+  async connectSupabase() {
+    this.connecting.set(true);
+    try {
+      await this.supabase.startSupabaseConnect(); // navigates away to Supabase
+    } catch (e) {
+      this.connecting.set(false);
+      this.toast.fail(e, 'Could not start the Supabase sign-in.');
     }
   }
 
@@ -217,7 +249,9 @@ export class Projects implements OnInit {
   async remove(p: ConnectedProject) {
     const ok = await this.dialog.confirm({
       title: `Remove ${p.name}?`,
-      message: 'Its stored token is deleted too. You can reconnect it later with a fresh token.',
+      message: p.connection_id
+        ? 'It is removed from this app only — nothing changes in your Supabase project. You can add it again with Connect Supabase.'
+        : 'Its stored token is deleted too. You can reconnect it later with a fresh token.',
       tone: 'danger',
       confirmText: 'Remove',
     });

@@ -7,6 +7,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { cors, json } from '../_shared/http.ts';
 import { managementQuery } from '../_shared/management.ts';
+import { projectAccessToken } from '../_shared/tokens.ts';
 
 const ROW_LIMIT = 500;
 
@@ -43,7 +44,7 @@ Deno.serve(async (req) => {
 
   const { data: project } = await admin
     .from('connected_projects')
-    .select('id, name, project_ref, allow_writes, owner_id')
+    .select('id, name, project_ref, allow_writes, owner_id, connection_id')
     .eq('id', projectId)
     .eq('owner_id', u.user.id)
     .single();
@@ -76,7 +77,14 @@ Deno.serve(async (req) => {
     });
   };
 
-  const { data: pat } = await admin.rpc('get_project_pat', { p_project_id: projectId });
+  let pat: string | null;
+  try {
+    pat = await projectAccessToken(admin, project);
+  } catch (e) {
+    const message = (e as Error)?.message ?? 'Could not get access to this project.';
+    await logResult('failed', message);
+    return json({ rows: null, row_count: null, error: message });
+  }
   if (!pat) {
     await logResult('failed', 'No token saved for this project.');
     return json({ rows: null, row_count: null, error: 'No token saved for this project.' });

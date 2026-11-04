@@ -49,8 +49,17 @@ import { ToastService } from '../../core/toast.service';
         </div>
 
         <div class="my-auto w-full max-w-sm self-center py-10">
-          <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">Sign in</h1>
-          <p class="mt-1.5 text-sm text-slate-500">Your personal console — not for other people yet.</p>
+          <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">{{ signingUp() ? 'Create your account' : 'Sign in' }}</h1>
+          <p class="mt-1.5 text-sm text-slate-500">
+            {{ signingUp() ? 'Free to start. Connect your Supabase projects right after.' : 'Welcome back — ask your databases in plain English.' }}
+          </p>
+
+          @if (checkEmail()) {
+            <div class="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+              <p class="font-semibold">Check your inbox</p>
+              <p class="mt-1">We sent a confirmation link to <strong>{{ email() }}</strong>. Open it, then sign in here.</p>
+            </div>
+          }
 
           <form class="mt-6 space-y-4" (ngSubmit)="submit()" novalidate>
             <div>
@@ -76,7 +85,7 @@ import { ToastService } from '../../core/toast.service';
                   name="password"
                   [ngModel]="password()"
                   (ngModelChange)="password.set($event)"
-                  autocomplete="current-password"
+                  [attr.autocomplete]="signingUp() ? 'new-password' : 'current-password'"
                   required
                 />
                 <button
@@ -93,9 +102,16 @@ import { ToastService } from '../../core/toast.service';
               @if (loading()) {
                 <lucide-icon name="refresh-cw" class="size-4 animate-spin" />
               }
-              Sign in
+              {{ signingUp() ? 'Create account' : 'Sign in' }}
             </button>
           </form>
+
+          <p class="mt-5 text-center text-sm text-slate-500">
+            {{ signingUp() ? 'Already have an account?' : 'New here?' }}
+            <button type="button" class="font-semibold text-brand hover:underline" (click)="toggleMode()">
+              {{ signingUp() ? 'Sign in' : 'Create an account' }}
+            </button>
+          </p>
         </div>
       </main>
     </div>
@@ -111,18 +127,40 @@ export class Login {
   protected readonly password = signal('');
   protected readonly showPassword = signal(false);
   protected readonly loading = signal(false);
+  protected readonly signingUp = signal(false);
+  protected readonly checkEmail = signal(false);
+
+  toggleMode() {
+    this.signingUp.set(!this.signingUp());
+    this.checkEmail.set(false);
+  }
 
   async submit() {
     if (!this.email().trim() || !this.password()) {
       this.toast.warn('Enter your email and password.');
       return;
     }
+    if (this.signingUp() && this.password().length < 8) {
+      this.toast.warn('Use at least 8 characters for your password.');
+      return;
+    }
     this.loading.set(true);
     try {
+      if (this.signingUp()) {
+        const mustConfirm = await this.supabase.signUp(this.email().trim(), this.password());
+        if (mustConfirm) {
+          this.checkEmail.set(true);
+          this.signingUp.set(false);
+          return;
+        }
+        // New users land on Projects — connecting Supabase is their first step.
+        this.router.navigateByUrl('/projects');
+        return;
+      }
       await this.supabase.signIn(this.email().trim(), this.password());
       this.router.navigateByUrl('/query');
     } catch (e) {
-      this.toast.fail(e, 'Could not sign in.');
+      this.toast.fail(e, this.signingUp() ? 'Could not create the account.' : 'Could not sign in.');
     } finally {
       this.loading.set(false);
     }

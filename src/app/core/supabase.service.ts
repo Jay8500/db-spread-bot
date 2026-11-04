@@ -15,7 +15,35 @@ export interface ConnectedProject {
   project_ref: string;
   project_url: string;
   allow_writes: boolean;
+  /** Set when added via "Connect with Supabase"; null for token-added projects. */
+  connection_id: string | null;
   created_at: string;
+}
+
+/** A project visible through a Supabase login connection. */
+export interface SupabaseAccountProject {
+  ref: string;
+  name: string;
+  region: string;
+  status: string;
+  organization_id: string;
+  /** Already in this user's connected projects. */
+  connected: boolean;
+}
+
+export interface ConnectionProjects {
+  connection_id: string;
+  projects: SupabaseAccountProject[];
+}
+
+const OAUTH_STATE_KEY = 'dbbot-oauth';
+
+function base64Url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function randomString(byteLength = 32): string {
+  return base64Url(crypto.getRandomValues(new Uint8Array(byteLength)));
 }
 
 export type StatementType = 'select' | 'insert' | 'update' | 'delete' | 'ddl' | 'other';
@@ -79,6 +107,17 @@ export class SupabaseService {
     if (error) throw error;
   }
 
+  /** Self sign-up. Returns true when the user must confirm their email before signing in. */
+  async signUp(email: string, password: string): Promise<boolean> {
+    const { data, error } = await this.client.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: `${location.origin}/query` },
+    });
+    if (error) throw error;
+    return !data.session;
+  }
+
   async signOut() {
     await this.client.auth.signOut({ scope: 'local' });
   }
@@ -124,6 +163,62 @@ export class SupabaseService {
   async deleteProject(projectId: string) {
     const { error } = await this.client.from('connected_projects').delete().eq('id', projectId);
     if (error) throw error;
+  }
+
+  // ── "Connect with Supabase" (OAuth + PKCE) ──
+  private get oauthRedirectUri() {
+    return `${location.origin}/connect/callback`;
+  }
+
+  /** Sends the browser to Supabase's consent screen. Comes back to /connect/callback. */
+  async startSupabaseConnect(): Promise<void> {
+    const verifier = randomString(48);
+    const state = randomString(16);
+    const challenge = base64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+    sessionStorage.setItem(OAUTH_STATE_KEY, JSON.stringify({ verifier, state }));
+    const params = new URLSearchParams({
+      client_id: environment.supabaseOAuthClientId,
+      redirect_uri: this.oauthRedirectUri,
+      response_type: 'code',
+      state,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+    });
+    location.assign(`https://api.supabase.com/v1/oauth/authorize?${params}`);
+  }
+
+  /** Called on /connect/callback: checks state, exchanges the code server-side, returns the account's projects. */
+  async finishSupabaseConnect(code: string, state: string): Promise<ConnectionProjects> {
+    let saved: { verifier?: string; state?: string } = {};
+    try {
+      saved = JSON.parse(sessionStorage.getItem(OAUTH_STATE_KEY) ?? '{}');
+    } catch {
+      /* treated as missing below */
+    }
+    sessionStorage.removeItem(OAUTH_STATE_KEY);
+    if (!saved.verifier || saved.state !== state) {
+      throw new UserFacingError('This sign-in link was already used or came from somewhere else — try connecting again.');
+    }
+    return this.connectCall<ConnectionProjects>({
+      action: 'exchange',
+      code,
+      code_verifier: saved.verifier,
+      redirect_uri: this.oauthRedirectUri,
+    });
+  }
+
+  connectionProjects(connectionId: string): Promise<ConnectionProjects> {
+    return this.connectCall({ action: 'projects', connection_id: connectionId });
+  }
+
+  addConnectionProjects(connectionId: string, refs: string[]): Promise<{ added: number }> {
+    return this.connectCall({ action: 'add', connection_id: connectionId, refs });
+  }
+
+  private async connectCall<T>(body: Record<string, unknown>): Promise<T> {
+    const { data, error } = await this.client.functions.invoke('supabase-connect', { body });
+    if (error) throw await unwrapFunctionError(error);
+    return data as T;
   }
 
   // ── Plain-English querying (both run server-side via edge functions) ──
