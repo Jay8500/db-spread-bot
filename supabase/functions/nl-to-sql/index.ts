@@ -12,16 +12,30 @@ import { fetchSchema } from '../_shared/management.ts';
 // often returns 503 "high demand" on the free tier, so fall through on
 // 404/429/503 rather than failing the request.
 // gemini-3.8-flash is left out: on the free tier it often hangs 40s+ before
-// failing. 3.5-flash with low thinking answers in ~1.5s (measured Nov 2026).
-const MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
+// failing. Free tier allows only ~20 requests/day PER MODEL, and each model
+// has its own allowance — so a longer chain = more free questions per day
+// (an exhausted model 429s in <1s). 3.5-flash-lite goes first: on a casual
+// Hinglish/typo test set it matched 3.5-flash quality at ~1.4s (Nov 2026).
+const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest'];
 const PER_MODEL_TIMEOUT_MS = 15_000;
 
 function system(schema: { table: string; columns: string }[]): string {
   const tables = schema.map((t) => `- ${t.table}(${t.columns})`).join('\n');
-  return `You translate a plain-English request into one PostgreSQL statement for a Supabase (Postgres) database.
+  return `You translate a request into one PostgreSQL statement for a Supabase (Postgres) database.
+
+The people asking are non-technical business owners and staff. They type short, casual, often ungrammatical English — typos, missing words, Indian-English or Hinglish phrasing ("today walkins", "pending payments list", "kitne patients aaye aaj", "show me last week sales"). Your job is to work out what they most likely mean and answer it — not to demand precision.
 
 Schema (public tables unqualified; auth.users is Supabase's built-in user table):
 ${tables || '(no tables found)'}
+
+How to interpret:
+- Always pick the single most sensible reading and go with it. Do not refuse because the request is vague, informal, misspelled or incomplete.
+- Match words to tables/columns loosely: singular/plural, synonyms and domain words (customer≈client≈patient≈user, sales≈orders≈invoices≈bills, staff≈employees≈doctors, walkin≈visit≈appointment, amount≈total≈price), abbreviations and typos.
+- "today", "yesterday", "this week/month/year", "last 7 days" → filter on the most relevant date/timestamp column (created_at if nothing better), in the Asia/Kolkata time zone, e.g. (created_at at time zone 'Asia/Kolkata')::date = (now() at time zone 'Asia/Kolkata')::date.
+- "show / list / give / get / see" with no count → return the useful columns (skip raw ids/json blobs unless asked), newest first, limit 100.
+- "how many / count / total / kitne" → a count; "total amount / revenue / sum" → sum of the money-like column. "top / most / highest / best" → order by that measure desc, limit 10.
+- Show human-readable names instead of ids where a join to a name/title/email column is obvious.
+- Only return sql: "" when the data genuinely isn't in the schema at all (e.g. they ask about inventory and no table relates to it) — then explain in one friendly sentence what's missing and which tables do exist.
 
 Rules:
 - For questions about users / people / sign-ups / who someone is, use auth.users (always write it schema-qualified as auth.users). Display names are usually in raw_user_meta_data->>'full_name' or raw_user_meta_data->>'name' — use coalesce over both, falling back to email. Join public tables to it via their user id / owner_id columns.
@@ -31,7 +45,7 @@ Rules:
 - "sql" is exactly ONE statement, valid PostgreSQL, using only the tables/columns listed above (or the system catalogs for structure questions). Never invent a table or column.
 - "explanation" is one short plain-English sentence describing exactly what the statement does, for someone who doesn't read SQL.
 - Prefer a SELECT whenever the request is just "show me" / "how many" / "what is" — never write/change data unless the request clearly asks for a change.
-- A request that can't be done with the schema above → sql: "", explanation: "<what's missing>", statement_type: "other".
+- "explanation" must be in simple English even if the question was in Hinglish.
 - Never use semicolons inside the statement; never return more than one statement.`;
 }
 
@@ -113,7 +127,7 @@ async function askGemini(apiKey: string, sys: string, prompt: string): Promise<G
       throw new Error(`AI request failed (${res.status})${detail ? `: ${detail.slice(0, 100)}` : ''}`);
     }
   }
-  if (lastStatus === 429) throw new Error('Free AI quota hit for the moment — wait a minute and try again.');
+  if (lastStatus === 429) throw new Error("Today's free AI limit is used up — it resets daily. Try again later.");
   if (lastStatus === 422) throw new Error('Could not understand that as a query — try rephrasing.');
   throw new Error('The AI service is busy right now — try again in a minute.');
 }
