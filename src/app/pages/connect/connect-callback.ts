@@ -118,7 +118,8 @@ export class ConnectCallback implements OnInit {
       this.result.set(r);
       // Pre-select everything not yet added — the common case is "add them all".
       // Token-added ones are offered but not ticked, so switching them is a deliberate choice.
-      this.selected.set(new Set(r.projects.filter((p) => !p.connected).map((p) => p.ref)));
+      // Paused projects can't answer queries, so they're offered but not pre-ticked.
+      this.selected.set(new Set(r.projects.filter((p) => !p.connected && !this.isPaused(p.status)).map((p) => p.ref)));
     } catch (e) {
       this.error.set(friendlyError(e, 'Could not finish connecting to Supabase.'));
     } finally {
@@ -153,8 +154,12 @@ export class ConnectCallback implements OnInit {
     this.selected.set(this.selected().size === all.length ? new Set() : new Set(all));
   }
 
+  isPaused(status: string) {
+    return /pause|inactive/i.test(status);
+  }
+
   statusLabel(status: string) {
-    return /pause/i.test(status) ? 'Paused' : status.replace(/_/g, ' ').toLowerCase();
+    return this.isPaused(status) ? 'Paused — restore it in Supabase first' : status.replace(/_/g, ' ').toLowerCase();
   }
 
   retry() {
