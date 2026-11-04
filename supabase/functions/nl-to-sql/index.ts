@@ -26,21 +26,53 @@ ${tables || '(no tables found)'}
 Rules:
 - For questions about users / people / sign-ups / who someone is, use auth.users (always write it schema-qualified as auth.users). Display names are usually in raw_user_meta_data->>'full_name' or raw_user_meta_data->>'name' — use coalesce over both, falling back to email. Join public tables to it via their user id / owner_id columns.
 - Never insert/update/delete anything in auth.users — it is read-only here.
-- Output ONLY a JSON object, no markdown fences, no prose outside it: {"sql": string, "explanation": string, "statement_type": "select"|"insert"|"update"|"delete"|"ddl"|"other"}
-- "sql" is exactly ONE statement, valid PostgreSQL, using only the tables/columns listed above. Never invent a table or column.
+- Questions about the database's own structure (how many tables, list tables/columns, table sizes, row counts per table, indexes) → query information_schema or pg_catalog (e.g. information_schema.tables, information_schema.columns, pg_stat_user_tables), limited to table_schema = 'public' unless another schema is asked for.
+- Output ONLY a JSON object: {"sql": string, "explanation": string, "statement_type": "select"|"insert"|"update"|"delete"|"ddl"|"other"}
+- "sql" is exactly ONE statement, valid PostgreSQL, using only the tables/columns listed above (or the system catalogs for structure questions). Never invent a table or column.
 - "explanation" is one short plain-English sentence describing exactly what the statement does, for someone who doesn't read SQL.
 - Prefer a SELECT whenever the request is just "show me" / "how many" / "what is" — never write/change data unless the request clearly asks for a change.
 - A request that can't be done with the schema above → sql: "", explanation: "<what's missing>", statement_type: "other".
 - Never use semicolons inside the statement; never return more than one statement.`;
 }
 
-async function askGemini(apiKey: string, sys: string, prompt: string): Promise<string> {
+type Generated = { sql?: string; explanation?: string; statement_type?: string };
+
+/** Pulls the JSON object out of the model text, tolerating fences or stray prose around it. */
+function parseGenerated(text: string): Generated | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const v = JSON.parse(text.slice(start, end + 1));
+    return v && typeof v === 'object' ? (v as Generated) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function askGemini(apiKey: string, sys: string, prompt: string): Promise<Generated> {
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: sys }] },
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    // Low thinking: one short SQL statement doesn't need deep reasoning, and
-    // the default level roughly triples latency.
-    generationConfig: { responseMimeType: 'application/json', temperature: 0.1, thinkingConfig: { thinkingLevel: 'low' } },
+    generationConfig: {
+      responseMimeType: 'application/json',
+      // Structured output: Gemini is constrained to exactly this shape, so
+      // the reply always parses (free-form JSON mode occasionally didn't).
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          sql: { type: 'STRING' },
+          explanation: { type: 'STRING' },
+          statement_type: { type: 'STRING', enum: ['select', 'insert', 'update', 'delete', 'ddl', 'other'] },
+        },
+        required: ['sql', 'explanation', 'statement_type'],
+        propertyOrdering: ['sql', 'explanation', 'statement_type'],
+      },
+      temperature: 0.1,
+      // Low thinking: one short SQL statement doesn't need deep reasoning, and
+      // the default level roughly triples latency.
+      thinkingConfig: { thinkingLevel: 'low' },
+    },
   });
   let lastStatus = 0;
   for (const model of MODELS) {
@@ -60,7 +92,18 @@ async function askGemini(apiKey: string, sys: string, prompt: string): Promise<s
     }
     if (res.ok) {
       const data = await res.json();
-      return (data.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? '').join('').trim();
+      const cand = data.candidates?.[0];
+      const text = (cand?.content?.parts ?? [])
+        .filter((p: { thought?: boolean }) => !p.thought)
+        .map((p: { text?: string }) => p.text ?? '')
+        .join('')
+        .trim();
+      const parsed = parseGenerated(text);
+      if (parsed) return parsed;
+      // Unparseable (empty, cut off, blocked…) — log what came back, try the next model.
+      console.error('Gemini unparseable', model, cand?.finishReason, text.slice(0, 500));
+      lastStatus = 422;
+      continue;
     }
     lastStatus = res.status;
     const detail = await res.json().then((d) => d?.error?.message as string | undefined).catch(() => undefined);
@@ -71,6 +114,7 @@ async function askGemini(apiKey: string, sys: string, prompt: string): Promise<s
     }
   }
   if (lastStatus === 429) throw new Error('Free AI quota hit for the moment — wait a minute and try again.');
+  if (lastStatus === 422) throw new Error('Could not understand that as a query — try rephrasing.');
   throw new Error('The AI service is busy right now — try again in a minute.');
 }
 
@@ -124,16 +168,11 @@ Deno.serve(async (req) => {
 
     const schema = await fetchSchema(pat, project.project_ref);
     mark('schema');
-    const text = await askGemini(apiKey, system(schema), prompt);
+    const parsed = await askGemini(apiKey, system(schema), prompt);
     mark('ai');
 
-    let parsed: { sql?: string; explanation?: string; statement_type?: string };
-    try {
-      parsed = JSON.parse(text.replace(/^```(json)?/i, '').replace(/```$/, '').trim());
-    } catch {
-      return json({ error: 'Could not understand that as a query — try rephrasing.' }, 400);
-    }
-    const sql = String(parsed.sql ?? '').trim();
+    // Trailing semicolon is harmless but run-query wraps reads in a subquery.
+    const sql = String(parsed.sql ?? '').trim().replace(/;\s*$/, '');
     if (!sql) return json({ error: parsed.explanation || 'Could not turn that into a query with the known tables.' }, 400);
 
     const allowedTypes = new Set(['select', 'insert', 'update', 'delete', 'ddl', 'other']);
