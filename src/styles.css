@@ -1,0 +1,86 @@
+@import 'tailwindcss';
+
+:root {
+  --brand: #6366f1;
+  --accent: #10b981;
+}
+
+@theme inline {
+  --font-sans: 'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --color-brand: var(--brand);
+  --color-accent: var(--accent);
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-slate-50 font-sans text-slate-800 antialiased;
+  }
+  button:not(:disabled),
+  [role='button'] {
+    cursor: pointer;
+  }
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-150 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-slate-100 bg-white shadow-sm;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white shadow-sm shadow-brand/25 hover:brightness-110;
+  }
+  .btn-success {
+    @apply btn bg-emerald-500 text-white shadow-sm shadow-emerald-500/25 hover:bg-emerald-600;
+  }
+  .btn-ghost {
+    @apply btn border border-slate-200 bg-white text-slate-700 hover:bg-slate-50;
+  }
+  .btn-danger {
+    @apply btn border border-rose-100 bg-rose-50 text-rose-600 hover:bg-rose-100;
+  }
+  .input {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/10;
+  }
+  .field-invalid .input,
+  .input.is-invalid {
+    @apply border-rose-300 bg-rose-50/30 focus:border-rose-400 focus:ring-rose-500/10;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-semibold tracking-wide text-slate-500;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
+  }
+  .nav-link {
+    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-800;
+  }
+  .nav-link.active {
+    @apply bg-brand/10 text-brand;
+  }
+  .section-title {
+    @apply text-base font-bold text-slate-800;
+  }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-up { animation: fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.animate-fade-in { animation: fade-in 0.2s ease-out both; }
+
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up, .animate-fade-in { animation: none; }
+}
