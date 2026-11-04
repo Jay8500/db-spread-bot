@@ -32,6 +32,10 @@ Rules:
 - For questions about users / people / sign-ups / who someone is, use auth.users (always write it schema-qualified as auth.users). Display names are usually in raw_user_meta_data->>'full_name' or raw_user_meta_data->>'name' — use coalesce over both, falling back to email. Join public tables to it via their user id / owner_id columns.
 - Never insert/update/delete anything in auth.users — it is read-only here.
 - Questions about the database's own structure (how many tables, list tables/columns, table sizes, row counts per table, indexes) → query information_schema or pg_catalog (e.g. information_schema.tables, information_schema.columns, pg_stat_user_tables), limited to table_schema = 'public' unless another schema is asked for.
+- Questions about database functions / RPCs / procedures ("list functions", "which functions update walk_ins", "show code of X") → pg_proc join pg_namespace (nspname = 'public'), skipping extension functions (not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')); use pg_get_function_identity_arguments(oid), pg_get_function_result(oid), and pg_get_functiondef(oid) for code (search code with ilike).
+- Triggers ("what triggers are on bills", "what runs when a walk-in is added") → pg_trigger (not tgisinternal) join pg_class/pg_namespace/pg_proc, with pg_get_triggerdef(t.oid).
+- Security rules / RLS ("is RLS on for X", "who can see bills", "list policies") → pg_policies (schemaname = 'public') and pg_class.relrowsecurity.
+- Edge functions are NOT in the database — if asked, return sql: "" and explain they're listed on the Database page → Edge functions tab.
 - Output ONLY a JSON object: {"sql": string, "explanation": string, "statement_type": "select"|"insert"|"update"|"delete"|"ddl"|"other"}
 - "sql" is exactly ONE statement, valid PostgreSQL, using only the tables/columns listed above (or the system catalogs for structure questions). Never invent a table or column.
 - "explanation" is one short plain-English sentence describing exactly what the statement does, for someone who doesn't read SQL.

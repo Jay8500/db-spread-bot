@@ -81,13 +81,68 @@ export interface TableInfo {
   name: string;
   rows: number | null;
   kind: 'table' | 'view';
+  /** Row-level security switched on. */
+  rls: boolean;
   columns: { name: string; type: string }[];
+}
+
+export interface DbFunctionInfo {
+  name: string;
+  args: string;
+  returns: string;
+  language: string;
+  security_definer: boolean;
+  definition: string;
+  /** Tables whose names appear in the code. */
+  tables: string[];
+}
+
+export interface TriggerInfo {
+  name: string;
+  table: string;
+  function: string;
+  enabled: boolean;
+  definition: string;
+}
+
+export interface PolicyInfo {
+  name: string;
+  table: string;
+  command: string;
+  roles: string;
+  permissive: string;
+  using: string | null;
+  check: string | null;
+}
+
+export interface EdgeFunctionInfo {
+  slug: string;
+  name: string;
+  status: string;
+  version: number | null;
+  verify_jwt: boolean | null;
+  updated_at: string | null;
 }
 
 export interface ProjectInfo {
   tables: TableInfo[];
+  functions: DbFunctionInfo[];
+  triggers: TriggerInfo[];
+  policies: PolicyInfo[];
+  edge_functions: EdgeFunctionInfo[] | null;
+  edge_functions_note: string | null;
   suggestions: string[];
+  /** Keys ("function:name") that already have a saved explanation. */
+  explained: string[];
   updated_at: string;
+}
+
+export type ExplainKind = 'table' | 'function' | 'trigger' | 'policy' | 'edge_function';
+
+export interface Explanation {
+  summary: string;
+  points: string[];
+  at: string;
 }
 
 export interface ActivityRow {
@@ -336,6 +391,13 @@ export class SupabaseService {
     const { data, error } = await this.client.functions.invoke('run-query', { body: { project_id: projectId, sql, preview: true } });
     if (error) throw await unwrapFunctionError(error);
     return data as ChangePreview;
+  }
+
+  /** Plain-English explanation of a table/function/trigger/policy/edge function (saved after the first time). */
+  async explain(projectId: string, kind: ExplainKind, name: string): Promise<Explanation> {
+    const { data, error } = await this.client.functions.invoke('project-info', { body: { project_id: projectId, explain: { kind, name } } });
+    if (error) throw await unwrapFunctionError(error);
+    return (data as { explanation: Explanation }).explanation;
   }
 
   /** Tables (with row counts) and suggested questions for a project — cached server-side for 6 h. */

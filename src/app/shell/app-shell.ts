@@ -82,7 +82,7 @@ import { NavItem, Sidebar, SidebarState } from '../shared/sidebar';
             routerLinkActive="!text-brand"
             class="flex flex-col items-center gap-0.5 py-1 text-[11px] font-semibold text-slate-400"
           >
-            <lucide-icon name="table-2" class="size-5" /> Tables
+            <lucide-icon name="table-2" class="size-5" /> Database
           </a>
           <a
             routerLink="/projects"
@@ -111,7 +111,7 @@ export class AppShell {
 
   protected readonly nav = computed<NavItem[]>(() => [
     { path: '/query', label: 'Ask', icon: 'bot', exact: true },
-    { path: '/tables', label: 'Tables', icon: 'table-2' },
+    { path: '/tables', label: 'Database', icon: 'table-2' },
     { path: '/projects', label: 'Projects', icon: 'database' },
     { path: '/activity', label: 'Activity', icon: 'history' },
   ]);
