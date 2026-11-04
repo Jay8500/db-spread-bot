@@ -15,6 +15,7 @@ create table if not exists public.connected_projects (
 );
 alter table public.connected_projects enable row level security;
 
+drop policy if exists "owns their projects" on public.connected_projects;
 create policy "owns their projects" on public.connected_projects
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
@@ -43,6 +44,7 @@ create table if not exists public.query_log (
 );
 alter table public.query_log enable row level security;
 
+drop policy if exists "owns their activity" on public.query_log;
 create policy "owns their activity" on public.query_log
   for select using (owner_id = auth.uid());
 -- No insert/update/delete policy for authenticated users — only the
@@ -77,7 +79,10 @@ language sql security definer set search_path = public, vault as $$
   select decrypted_secret from vault.decrypted_secrets where name = 'project/' || p_project_id || '/pat';
 $$;
 
-revoke all on function public.set_project_secret(uuid, text), public.get_project_pat(uuid) from public, anon;
+-- Supabase's default privileges grant EXECUTE on new public functions to
+-- anon, authenticated and service_role, so authenticated must be revoked
+-- explicitly too — otherwise any logged-in browser could rpc() a decrypted PAT.
+revoke all on function public.set_project_secret(uuid, text), public.get_project_pat(uuid) from public, anon, authenticated;
 grant execute on function public.set_project_secret(uuid, text) to authenticated;
 grant execute on function public.get_project_pat(uuid) to service_role;
 
