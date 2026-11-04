@@ -20,13 +20,19 @@ import { ToastService } from '../../core/toast.service';
             <img [src]="brand.productLogo" alt="" class="size-11 rounded-xl ring-2 ring-white/30" />
             <span class="text-lg font-bold">{{ brand.product }}</span>
           </div>
-          <div class="max-w-md">
-            <h2 class="text-3xl leading-tight font-extrabold">Ask your databases in plain English.</h2>
-            <p class="mt-2 text-sm text-white/80">No SQL to remember — connect a Supabase project, type what you need, confirm before anything runs.</p>
-            <div class="mt-6 grid grid-cols-3 gap-3 text-sm">
-              <div class="rounded-2xl bg-white/15 p-3 backdrop-blur"><lucide-icon name="bot" class="size-4" /><p class="mt-2 font-semibold">Plain English</p></div>
-              <div class="rounded-2xl bg-white/15 p-3 backdrop-blur"><lucide-icon name="shield-check" class="size-4" /><p class="mt-2 font-semibold">Confirm before run</p></div>
-              <div class="rounded-2xl bg-white/15 p-3 backdrop-blur"><lucide-icon name="database" class="size-4" /><p class="mt-2 font-semibold">Every project, one place</p></div>
+          <div class="max-w-lg">
+            <h2 class="text-3xl leading-tight font-extrabold">Your Supabase data, in plain English.</h2>
+            <p class="mt-2 text-sm text-white/80">
+              Look things up, dig deeper and fix data every day — without SQL and without opening the Supabase dashboard.
+            </p>
+            <div class="mt-6 grid grid-cols-2 gap-3 text-sm">
+              @for (f of features; track f.title) {
+                <div class="rounded-2xl bg-white/15 p-3.5 backdrop-blur">
+                  <lucide-icon [name]="f.icon" class="size-4" />
+                  <p class="mt-2 font-semibold">{{ f.title }}</p>
+                  <p class="mt-0.5 text-xs leading-snug text-white/75">{{ f.text }}</p>
+                </div>
+              }
             </div>
           </div>
           <div class="flex items-center gap-3">
@@ -112,6 +118,16 @@ import { ToastService } from '../../core/toast.service';
               {{ signingUp() ? 'Sign in' : 'Create an account' }}
             </button>
           </p>
+
+          <!-- Phones don't get the side panel — show the short version here. -->
+          <ul class="mt-8 space-y-2.5 border-t border-slate-200 pt-6 lg:hidden">
+            @for (f of features; track f.title) {
+              <li class="flex gap-3 text-sm">
+                <span class="grid size-8 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand"><lucide-icon [name]="f.icon" class="size-4" /></span>
+                <span><strong class="text-slate-700">{{ f.title }}</strong><span class="text-slate-500">&nbsp;— {{ f.text }}</span></span>
+              </li>
+            }
+          </ul>
         </div>
       </main>
     </div>
@@ -123,6 +139,14 @@ export class Login {
   private readonly router = inject(Router);
 
   protected readonly brand = environment.brand;
+  protected readonly features = [
+    { icon: 'bot', title: 'Just type it', text: 'Casual English, typos, even Hinglish — "today walkins", "pending bills".' },
+    { icon: 'database', title: 'One-click connect', text: 'Sign in with Supabase and pick projects — from every account you have.' },
+    { icon: 'table-2', title: 'Browse tables', text: 'Every table with row counts and the latest rows, no SQL.' },
+    { icon: 'corner-down-right', title: 'Follow up', text: '"Only unpaid ones", "now last week" — builds on your last answer.' },
+    { icon: 'shield-check', title: 'Safe fixes', text: 'See exactly which rows a change touches before anything is saved.' },
+    { icon: 'download', title: 'Clean results', text: 'Readable columns, ₹ amounts and dates, one-click CSV for Excel.' },
+  ];
   protected readonly email = signal('');
   protected readonly password = signal('');
   protected readonly showPassword = signal(false);
