@@ -128,7 +128,7 @@ export class SupabaseService {
   // ── Plain-English querying (both run server-side via edge functions) ──
   async generateSql(projectId: string, prompt: string): Promise<GeneratedSql> {
     const { data, error } = await this.client.functions.invoke('nl-to-sql', { body: { project_id: projectId, prompt } });
-    if (error) throw error;
+    if (error) throw await unwrapFunctionError(error);
     return data as GeneratedSql;
   }
 
@@ -136,7 +136,7 @@ export class SupabaseService {
     const { data, error } = await this.client.functions.invoke('run-query', {
       body: { project_id: projectId, sql, statement_type: statementType, prompt, confirmed },
     });
-    if (error) throw error;
+    if (error) throw await unwrapFunctionError(error);
     return data as QueryResult;
   }
 
@@ -150,4 +150,23 @@ export class SupabaseService {
     if (error) throw error;
     return data ?? [];
   }
+}
+
+/**
+ * functions.invoke() reports any non-2xx as a generic "Edge Function returned
+ * a non-2xx status code" — the function's own { error } message is only in
+ * the response body (error.context). Surface that instead.
+ */
+async function unwrapFunctionError(error: unknown): Promise<Error> {
+  const res = (error as { context?: Response })?.context;
+  if (res && typeof res.json === 'function') {
+    try {
+      const body = await res.clone().json();
+      if (body?.error) return new Error(String(body.error));
+      if (body?.message) return new Error(String(body.message));
+    } catch {
+      /* body wasn't JSON — fall through */
+    }
+  }
+  return error instanceof Error ? error : new Error(String(error));
 }
