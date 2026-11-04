@@ -23,7 +23,7 @@ const STATEMENT_LABEL: Record<StatementType, string> = {
   imports: [FormsModule, RouterLink, LucideAngularModule],
   template: `
     <h1 class="section-title text-xl">Ask in plain English</h1>
-    <p class="mt-1 text-sm text-slate-500">Pick a project, type what you need. Nothing runs until you confirm it.</p>
+    <p class="mt-1 text-sm text-slate-500">Pick a project, type what you need. Reads show results right away; changes wait for your confirmation.</p>
 
     @if (!loadingProjects() && !projects().length) {
       <div class="card mt-5 flex items-center justify-between gap-3 p-5">
@@ -87,9 +87,9 @@ const STATEMENT_LABEL: Record<StatementType, string> = {
             } @else {
               <lucide-icon name="play" class="size-4" />
             }
-            {{ isWrite(g.statement_type) ? 'Confirm & Run' : 'Run' }}
+            {{ isWrite(g.statement_type) ? 'Confirm & Run' : result() ? 'Run again' : 'Run' }}
           </button>
-          <button class="btn-ghost" (click)="generated.set(null)">Discard</button>
+          <button class="btn-ghost" (click)="generated.set(null); result.set(null)">{{ result() ? 'Clear' : 'Discard' }}</button>
         </div>
       </div>
     }
@@ -178,6 +178,13 @@ export class Query implements OnInit {
     try {
       const g = await this.supabase.generateSql(this.projectId(), this.prompt().trim());
       this.generated.set(g);
+      // One click for reads: run straight away. The server forces reads to be
+      // structurally read-only, so this can't change data. Anything else
+      // still waits for an explicit Confirm & Run.
+      if (this.isAutoRun(g)) {
+        this.asking.set(false);
+        await this.run(g, true);
+      }
     } catch (e) {
       this.toast.fail(e, 'Could not turn that into a query.');
     } finally {
@@ -185,7 +192,11 @@ export class Query implements OnInit {
     }
   }
 
-  async run(g: GeneratedSql) {
+  isAutoRun(g: GeneratedSql): boolean {
+    return g.statement_type === 'select' && /^\s*(select|with)\b/i.test(g.sql) && !this.isDanger(g.sql);
+  }
+
+  async run(g: GeneratedSql, auto = false) {
     const project = this.projects().find((p) => p.id === this.projectId());
     if (!project) return;
 
@@ -219,7 +230,7 @@ export class Query implements OnInit {
       const r = await this.supabase.runQuery(project.id, g.sql, g.statement_type, this.prompt().trim(), true);
       this.result.set(r);
       if (r.error) this.toast.error(r.error);
-      else this.toast.success('Done.');
+      else if (!auto) this.toast.success('Done.');
     } catch (e) {
       this.toast.fail(e, 'Could not run that query.');
     } finally {

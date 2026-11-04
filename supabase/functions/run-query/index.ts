@@ -50,10 +50,19 @@ Deno.serve(async (req) => {
   if (!project) return json({ error: 'Project not found.' }, 404);
 
   const statementType = classify(sql);
-  const isWrite = statementType !== 'select' && statementType !== 'other';
+  // Anything that isn't a plain read — including 'other' (GRANT, DO, VACUUM…)
+  // — needs writes enabled AND an explicit confirmation.
+  const isWrite = statementType !== 'select';
   if (isWrite && (!project.allow_writes || !confirmed)) {
     return json({ error: `${project.name} is read-only, or this wasn't confirmed as a write.` }, 403);
   }
+  // Reads may run without a confirm click, so make "read" structural, not
+  // just a keyword check: Postgres refuses a data-modifying CTE
+  // (WITH x AS (DELETE …)) inside a subquery, so wrapping guarantees a
+  // "select" can't change rows. Also caps rows server-side.
+  const execSql = isWrite
+    ? sql
+    : `select * from (\n${sql.replace(/;\s*$/, '')}\n) as dbbot_q limit ${ROW_LIMIT + 1}`;
 
   const logResult = async (status: 'success' | 'failed', error: string | null) => {
     await admin.from('query_log').insert({
@@ -74,7 +83,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const rows = await managementQuery(pat, project.project_ref, sql);
+    const rows = await managementQuery(pat, project.project_ref, execSql);
     await logResult('success', null);
     return json({ rows: rows.slice(0, ROW_LIMIT), row_count: rows.length, error: null });
   } catch (e) {
