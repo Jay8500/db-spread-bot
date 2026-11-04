@@ -4,11 +4,12 @@ import { LucideAngularModule } from 'lucide-angular';
 import { environment } from '../../environments/environment';
 import { SupabaseService } from '../core/supabase.service';
 import { BrandMark } from '../shared/brand-mark';
+import { UserAvatar } from '../shared/user-avatar';
 import { NavItem, Sidebar, SidebarState } from '../shared/sidebar';
 
 @Component({
   selector: 'app-shell',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, LucideAngularModule, Sidebar, BrandMark],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, LucideAngularModule, Sidebar, BrandMark, UserAvatar],
   template: `
     @let mini = sidebar.compact();
     <app-sidebar [items]="nav()">
@@ -22,6 +23,19 @@ import { NavItem, Sidebar, SidebarState } from '../shared/sidebar';
       <img sidebar-mark [src]="brand.productLogo" alt="" class="size-9 rounded-xl" />
 
       <div sidebar-footer class="space-y-3">
+        <a
+          routerLink="/profile"
+          routerLinkActive="!bg-brand/10 !ring-brand/20"
+          class="flex items-center gap-3 rounded-2xl p-2 ring-1 ring-slate-100 transition hover:bg-slate-50"
+          [class]="{ 'md:justify-center': mini, 'md:p-1': mini }"
+          title="Profile"
+        >
+          <app-user-avatar [size]="36" />
+          <span class="min-w-0 leading-tight" [class]="{ 'md:hidden': mini }">
+            <span class="block truncate text-sm font-semibold text-slate-800">{{ supabase.displayName() }}</span>
+            <span class="block truncate text-xs text-slate-400">{{ supabase.user()?.email }}</span>
+          </span>
+        </a>
         <button
           class="nav-link w-full bg-rose-50 text-rose-600 ring-1 ring-rose-100 hover:bg-rose-500 hover:text-white hover:ring-rose-500"
           [class]="{ 'md:justify-center': mini, 'md:px-0': mini }"
@@ -46,6 +60,7 @@ import { NavItem, Sidebar, SidebarState } from '../shared/sidebar';
         </button>
         <img [src]="brand.productLogo" alt="" class="size-6 rounded-md" />
         <span class="truncate text-sm font-bold text-slate-800">{{ brand.product }}</span>
+        <a routerLink="/profile" class="ml-auto" aria-label="Profile"><app-user-avatar [size]="32" /></a>
       </header>
 
       <main class="mx-auto max-w-6xl px-4 pt-5 sm:px-6 sm:pt-7">
@@ -82,7 +97,7 @@ import { NavItem, Sidebar, SidebarState } from '../shared/sidebar';
   `,
 })
 export class AppShell {
-  private readonly supabase = inject(SupabaseService);
+  protected readonly supabase = inject(SupabaseService);
   private readonly router = inject(Router);
   protected readonly sidebar = SidebarState;
   protected readonly brand = environment.brand;

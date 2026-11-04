@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { computed, Injectable, signal } from '@angular/core';
 import { createClient, Session, SupabaseClient, User } from '@supabase/supabase-js';
 import { environment } from '../../environments/environment';
 import { UserFacingError } from './toast.service';
@@ -116,6 +116,58 @@ export class SupabaseService {
     });
     if (error) throw error;
     return !data.session;
+  }
+
+  // ── Profile (name + picture live in auth user metadata) ──
+  /** Display name: what the user typed, else the part of their email before @. */
+  readonly displayName = computed(() => {
+    const u = this.user();
+    const name = String(u?.user_metadata?.['full_name'] ?? '').trim();
+    return name || (u?.email ?? '').split('@')[0] || 'You';
+  });
+  readonly avatarUrl = computed(() => (this.user()?.user_metadata?.['avatar_url'] as string | undefined) || null);
+
+  async updateProfile(data: { full_name?: string; avatar_url?: string | null }) {
+    const { data: res, error } = await this.client.auth.updateUser({ data });
+    if (error) throw error;
+    // Update the signal right away so every avatar/name in the UI changes instantly.
+    if (res.user) this.user.set(res.user);
+  }
+
+  /** Uploads a new picture to avatars/<uid>/…, points the profile at it and removes the old files. */
+  async uploadAvatar(file: File): Promise<void> {
+    const uid = this.user()?.id;
+    if (!uid) throw new UserFacingError('Please sign in again.');
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) throw new UserFacingError('Use a PNG, JPG, WebP or GIF image.');
+    if (file.size > 2 * 1024 * 1024) throw new UserFacingError('That image is over 2 MB — pick a smaller one.');
+
+    const ext = file.type.split('/')[1].replace('jpeg', 'jpg');
+    // Unique name per upload, so browsers never show a cached old picture.
+    const path = `${uid}/avatar-${Date.now()}.${ext}`;
+    const bucket = this.client.storage.from('avatars');
+    const { error } = await bucket.upload(path, file, { contentType: file.type, cacheControl: '31536000' });
+    if (error) throw error;
+    const { data } = bucket.getPublicUrl(path);
+    await this.updateProfile({ avatar_url: data.publicUrl });
+    await this.removeOldAvatars(uid, path);
+  }
+
+  async removeAvatar(): Promise<void> {
+    const uid = this.user()?.id;
+    await this.updateProfile({ avatar_url: null });
+    if (uid) await this.removeOldAvatars(uid, null);
+  }
+
+  private async removeOldAvatars(uid: string, keepPath: string | null) {
+    const bucket = this.client.storage.from('avatars');
+    const { data } = await bucket.list(uid);
+    const old = (data ?? []).map((f) => `${uid}/${f.name}`).filter((p) => p !== keepPath);
+    if (old.length) await bucket.remove(old); // best effort — a leftover file is harmless
+  }
+
+  async changePassword(newPassword: string) {
+    const { error } = await this.client.auth.updateUser({ password: newPassword });
+    if (error) throw error;
   }
 
   async signOut() {

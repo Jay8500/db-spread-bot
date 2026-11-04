@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Bot,
+  Camera,
   Check,
   CircleCheck,
   CircleX,
@@ -32,6 +33,7 @@ import {
 export const APP_ICONS = {
   AlertTriangle,
   Bot,
+  Camera,
   Check,
   CircleCheck,
   CircleX,
