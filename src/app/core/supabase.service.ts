@@ -71,6 +71,25 @@ export interface QueryResult {
   error: string | null;
 }
 
+export interface ChangePreview {
+  preview: { count: number; rows: Record<string, unknown>[] } | null;
+  /** Set when the change would fail (bad column, constraint…). */
+  error?: string;
+}
+
+export interface TableInfo {
+  name: string;
+  rows: number | null;
+  kind: 'table' | 'view';
+  columns: { name: string; type: string }[];
+}
+
+export interface ProjectInfo {
+  tables: TableInfo[];
+  suggestions: string[];
+  updated_at: string;
+}
+
 export interface ActivityRow {
   id: string;
   project_id: string;
@@ -305,10 +324,25 @@ export class SupabaseService {
   }
 
   // ── Plain-English querying (both run server-side via edge functions) ──
-  async generateSql(projectId: string, prompt: string): Promise<GeneratedSql> {
-    const { data, error } = await this.client.functions.invoke('nl-to-sql', { body: { project_id: projectId, prompt } });
+  /** `history` = earlier questions in this conversation, so follow-ups ("only unpaid ones") build on them. */
+  async generateSql(projectId: string, prompt: string, history: { prompt: string; sql: string }[] = []): Promise<GeneratedSql> {
+    const { data, error } = await this.client.functions.invoke('nl-to-sql', { body: { project_id: projectId, prompt, history } });
     if (error) throw await unwrapFunctionError(error);
     return data as GeneratedSql;
+  }
+
+  /** Dry run of a change: how many rows it would touch and what they'd look like. Nothing is saved. */
+  async previewChange(projectId: string, sql: string): Promise<ChangePreview> {
+    const { data, error } = await this.client.functions.invoke('run-query', { body: { project_id: projectId, sql, preview: true } });
+    if (error) throw await unwrapFunctionError(error);
+    return data as ChangePreview;
+  }
+
+  /** Tables (with row counts) and suggested questions for a project — cached server-side for 6 h. */
+  async projectInfo(projectId: string, refresh = false): Promise<ProjectInfo> {
+    const { data, error } = await this.client.functions.invoke('project-info', { body: { project_id: projectId, refresh } });
+    if (error) throw await unwrapFunctionError(error);
+    return data as ProjectInfo;
   }
 
   async runQuery(projectId: string, sql: string, statementType: StatementType, prompt: string, confirmed: boolean): Promise<QueryResult> {

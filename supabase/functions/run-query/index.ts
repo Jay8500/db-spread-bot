@@ -27,6 +27,43 @@ function isSingleStatement(sql: string): boolean {
   return !body.includes(';');
 }
 
+const PREVIEW_TAG = '$dbbot_preview$';
+const PREVIEW_ROWS = 10;
+
+/**
+ * Wraps an INSERT/UPDATE/DELETE in a DO block that runs it, counts and samples
+ * the affected rows, then RAISEs — and the raise rolls the whole change back.
+ * So the database is left exactly as it was; only the error text carries the
+ * preview out.
+ */
+function previewSql(sql: string): string {
+  const body = sql.replace(/;\s*$/, '');
+  if (body.includes(PREVIEW_TAG)) throw new Error('Unsupported statement.');
+  const withReturning = /\breturning\b/i.test(body) ? body : `${body} returning *`;
+  return `do ${PREVIEW_TAG} declare dbbot_n bigint; dbbot_sample text; begin
+with dbbot_x as (${withReturning})
+select count(*), (select coalesce(json_agg(t), '[]'::json) from (select * from dbbot_x limit ${PREVIEW_ROWS}) t)::text
+  into dbbot_n, dbbot_sample from dbbot_x;
+raise exception 'DBBOT_PREVIEW %', json_build_object('count', dbbot_n, 'rows', dbbot_sample::json)::text;
+end ${PREVIEW_TAG}`;
+}
+
+function parsePreview(message: string): { count: number; rows: Record<string, unknown>[] } | null {
+  const at = message.indexOf('DBBOT_PREVIEW ');
+  if (at < 0) return null;
+  const rest = message.slice(at + 'DBBOT_PREVIEW '.length);
+  // The JSON is followed by Postgres context lines — try the longest prefix that parses.
+  for (let end = rest.lastIndexOf('}'); end > 0; end = rest.lastIndexOf('}', end - 1)) {
+    try {
+      const v = JSON.parse(rest.slice(0, end + 1));
+      if (typeof v?.count === 'number') return { count: v.count, rows: Array.isArray(v.rows) ? v.rows : [] };
+    } catch {
+      /* keep shrinking */
+    }
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -39,6 +76,9 @@ Deno.serve(async (req) => {
   const sql = String(body.sql ?? '').trim();
   const prompt = String(body.prompt ?? '').slice(0, 500);
   const confirmed = body.confirmed === true;
+  // preview:true = dry run of a change: report how many rows it would touch
+  // (and what they'd look like), then roll back. Nothing is saved or logged.
+  const preview = body.preview === true;
   if (!projectId || !sql) return json({ error: 'Nothing to run.' }, 400);
   if (!isSingleStatement(sql)) return json({ error: 'Only one statement can run at a time.' }, 400);
 
@@ -54,8 +94,11 @@ Deno.serve(async (req) => {
   // Anything that isn't a plain read — including 'other' (GRANT, DO, VACUUM…)
   // — needs writes enabled AND an explicit confirmation.
   const isWrite = statementType !== 'select';
-  if (isWrite && (!project.allow_writes || !confirmed)) {
-    return json({ error: `${project.name} is read-only, or this wasn't confirmed as a write.` }, 403);
+  if (isWrite && !project.allow_writes) {
+    return json({ error: `${project.name} is read-only. Turn on "Allow writes" for it on the Projects page first.` }, 403);
+  }
+  if (isWrite && !confirmed && !preview) {
+    return json({ error: "This change wasn't confirmed." }, 403);
   }
   // Reads may run without a confirm click, so make "read" structural, not
   // just a keyword check: Postgres refuses a data-modifying CTE
@@ -88,6 +131,21 @@ Deno.serve(async (req) => {
   if (!pat) {
     await logResult('failed', 'No token saved for this project.');
     return json({ rows: null, row_count: null, error: 'No token saved for this project.' });
+  }
+
+  if (preview) {
+    if (!['insert', 'update', 'delete'].includes(statementType)) {
+      return json({ preview: null }); // DDL etc.: no row preview, the confirm dialog still warns
+    }
+    try {
+      await managementQuery(pat, project.project_ref, previewSql(sql));
+      return json({ preview: null }); // the block always raises — getting here means no preview
+    } catch (e) {
+      const p = parsePreview((e as Error)?.message ?? '');
+      if (p) return json({ preview: p });
+      // A real error (bad column, constraint…) — the change would fail too, so say so now.
+      return json({ preview: null, error: (e as Error)?.message ?? 'This change would fail.' });
+    }
   }
 
   try {

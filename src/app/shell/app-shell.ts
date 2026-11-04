@@ -69,13 +69,20 @@ import { NavItem, Sidebar, SidebarState } from '../shared/sidebar';
 
       <!-- Mobile: bottom navigation -->
       <nav class="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-slate-100 bg-white/95 backdrop-blur md:hidden">
-        <div class="grid grid-cols-3 px-2 pt-1.5 pb-1.5">
+        <div class="grid grid-cols-4 px-2 pt-1.5 pb-1.5">
           <a
             routerLink="/query"
             routerLinkActive="!text-brand"
             class="flex flex-col items-center gap-0.5 py-1 text-[11px] font-semibold text-slate-400"
           >
             <lucide-icon name="bot" class="size-5" /> Ask
+          </a>
+          <a
+            routerLink="/tables"
+            routerLinkActive="!text-brand"
+            class="flex flex-col items-center gap-0.5 py-1 text-[11px] font-semibold text-slate-400"
+          >
+            <lucide-icon name="table-2" class="size-5" /> Tables
           </a>
           <a
             routerLink="/projects"
@@ -104,6 +111,7 @@ export class AppShell {
 
   protected readonly nav = computed<NavItem[]>(() => [
     { path: '/query', label: 'Ask', icon: 'bot', exact: true },
+    { path: '/tables', label: 'Tables', icon: 'table-2' },
     { path: '/projects', label: 'Projects', icon: 'database' },
     { path: '/activity', label: 'Activity', icon: 'history' },
   ]);

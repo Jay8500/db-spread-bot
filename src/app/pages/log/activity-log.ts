@@ -1,12 +1,13 @@
 import { DatePipe } from '@angular/common';
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
+import { RouterLink } from '@angular/router';
 import { ActivityRow, ConnectedProject, SupabaseService } from '../../core/supabase.service';
 import { ToastService } from '../../core/toast.service';
 
 @Component({
   selector: 'app-activity-log',
-  imports: [LucideAngularModule, DatePipe],
+  imports: [LucideAngularModule, DatePipe, RouterLink],
   template: `
     <h1 class="section-title text-xl">Activity</h1>
     <p class="mt-1 text-sm text-slate-500">Every query that actually ran, across every connected project.</p>
@@ -21,6 +22,15 @@ import { ToastService } from '../../core/toast.service';
             </span>
             <span class="font-semibold text-slate-500">{{ projectName(row.project_id) }}</span>
             <span class="text-slate-400">{{ row.executed_at | date: 'MMM d, h:mm a' }}</span>
+            @if (!row.prompt.startsWith('Browse ')) {
+              <a
+                class="ml-auto inline-flex items-center gap-1 font-semibold text-brand hover:underline"
+                routerLink="/query"
+                [queryParams]="{ project: row.project_id, prompt: row.prompt, run: row.statement_type === 'select' ? '1' : null }"
+              >
+                <lucide-icon name="refresh-cw" class="size-3.5" /> Ask again
+              </a>
+            }
           </div>
           <p class="mt-2 text-sm font-medium text-slate-700">{{ row.prompt }}</p>
           <pre class="mt-2 overflow-x-auto rounded-xl bg-slate-900 p-3 text-[11px] leading-relaxed text-emerald-300">{{ row.generated_sql }}</pre>
