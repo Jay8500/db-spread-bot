@@ -17,7 +17,7 @@ import { ToastService } from '../../core/toast.service';
         <div class="absolute right-0 bottom-0 size-[28rem] translate-x-1/3 translate-y-1/3 rounded-full bg-white/10 blur-3xl"></div>
         <div class="relative flex h-full flex-col justify-between p-10 text-white">
           <div class="flex items-center gap-3">
-            <img [src]="brand.logo" alt="" class="size-11 rounded-xl bg-white object-contain p-1" />
+            <img [src]="brand.productLogo" alt="" class="size-11 rounded-xl ring-2 ring-white/30" />
             <span class="text-lg font-bold">{{ brand.product }}</span>
           </div>
           <div class="max-w-md">
@@ -44,7 +44,7 @@ import { ToastService } from '../../core/toast.service';
 
       <main class="flex flex-col px-5 py-8 sm:px-10">
         <div class="flex items-center gap-2.5 lg:hidden">
-          <img [src]="brand.logo" alt="" class="size-9 rounded-xl bg-white object-contain ring-1 ring-slate-100" />
+          <img [src]="brand.productLogo" alt="" class="size-9 rounded-xl" />
           <span class="font-bold text-slate-800">{{ brand.product }}</span>
         </div>
 

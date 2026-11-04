@@ -27,7 +27,7 @@ const TONES: Record<DialogTone, { icon: string; badge: string; button: string }>
           [attr.aria-labelledby]="'dlg-title'"
         >
           <div class="flex items-center gap-2.5 border-b border-slate-100 bg-slate-50/70 px-5 py-3">
-            <img [src]="brand.logo" alt="" class="size-7 rounded-lg bg-white object-contain ring-1 ring-slate-100" />
+            <img [src]="brand.productLogo" alt="" class="size-7 rounded-lg" />
             <span class="truncate text-sm font-bold text-slate-700">{{ brand.name }} {{ brand.product }}</span>
           </div>
 

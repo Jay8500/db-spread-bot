@@ -8,7 +8,8 @@ export const environment = {
   brand: {
     name: 'Spread Apps',
     product: 'DB Spread Bot',
-    logo: '/brand/spreadapps-icon.png',
+    logo: '/brand/spreadapps-icon.png', // parent company — "Powered by" only
+    productLogo: '/brand/dbbot-icon.svg', // this product's own icon
     website: 'https://spreadapps.in',
   },
 };

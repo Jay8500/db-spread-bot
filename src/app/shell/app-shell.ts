@@ -13,13 +13,13 @@ import { NavItem, Sidebar, SidebarState } from '../shared/sidebar';
     @let mini = sidebar.compact();
     <app-sidebar [items]="nav()">
       <a sidebar-brand routerLink="/query" class="flex min-w-0 items-center gap-2.5">
-        <img [src]="brand.logo" alt="" class="size-9 shrink-0 rounded-xl bg-white object-contain ring-1 ring-slate-100" />
+        <img [src]="brand.productLogo" alt="" class="size-9 shrink-0 rounded-xl" />
         <span class="min-w-0 leading-tight">
           <span class="block truncate text-[15px] font-bold text-slate-800">{{ brand.product }}</span>
           <span class="block truncate text-[11px] text-slate-400">{{ brand.name }}</span>
         </span>
       </a>
-      <img sidebar-mark [src]="brand.logo" alt="" class="size-9 rounded-xl bg-white object-contain ring-1 ring-slate-100" />
+      <img sidebar-mark [src]="brand.productLogo" alt="" class="size-9 rounded-xl" />
 
       <div sidebar-footer class="space-y-3">
         <button
@@ -44,7 +44,7 @@ import { NavItem, Sidebar, SidebarState } from '../shared/sidebar';
         <button class="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" (click)="sidebar.drawer.set(true)" aria-label="Open menu">
           <lucide-icon name="menu" class="size-5" />
         </button>
-        <img [src]="brand.logo" alt="" class="size-6 rounded-md" />
+        <img [src]="brand.productLogo" alt="" class="size-6 rounded-md" />
         <span class="truncate text-sm font-bold text-slate-800">{{ brand.product }}</span>
       </header>
 
