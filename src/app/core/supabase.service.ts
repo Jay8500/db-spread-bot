@@ -1,6 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { createClient, Session, SupabaseClient, User } from '@supabase/supabase-js';
 import { environment } from '../../environments/environment';
+import { UserFacingError } from './toast.service';
 
 /** False until the real control-plane project URL/key replace the scaffold
  *  placeholders — createClient() throws on an invalid URL, which would
@@ -162,7 +163,9 @@ async function unwrapFunctionError(error: unknown): Promise<Error> {
   if (res && typeof res.json === 'function') {
     try {
       const body = await res.clone().json();
-      if (body?.error) return new Error(String(body.error));
+      // Our functions' { error } text is written for the user; 401s still go
+      // through the normal mapping so they read as "session expired".
+      if (body?.error) return res.status === 401 ? new Error(String(body.error)) : new UserFacingError(String(body.error));
       if (body?.message) return new Error(String(body.message));
     } catch {
       /* body wasn't JSON — fall through */

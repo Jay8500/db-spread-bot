@@ -28,11 +28,17 @@ const FRIENDLY: [RegExp, string][] = [
 /** Words that mean the message is technical and should never be shown as-is. */
 const TECHNICAL = /violates|constraint|relation|column|syntax|pgrst|sql|postgres|supabase|function|undefined|null|exception|stack|uuid|\bcode\b|json|token/i;
 
+/** An error whose message was written for the user (by our own edge functions). */
+export class UserFacingError extends Error {}
+
 /** Turns any error into a short message that is safe to show to users. */
 export function friendlyError(e: unknown, fallback = 'Something went wrong. Please try again.'): string {
   const raw =
     typeof e === 'string' ? e : (e as { message?: string; error_description?: string })?.message ?? (e as { error_description?: string })?.error_description ?? '';
   if (!raw) return fallback;
+  // Our edge functions write their { error } text for the user on purpose
+  // (e.g. "The schema has no column for names") — show it as-is.
+  if (e instanceof UserFacingError) return raw.length <= 300 ? raw : raw.slice(0, 297) + '…';
   for (const [re, msg] of FRIENDLY) if (re.test(raw)) return msg;
   // Our own messages are already short and plain — pass those through.
   if (raw.length <= 90 && !TECHNICAL.test(raw)) return raw;
@@ -65,7 +71,9 @@ export class ToastService {
   }
   fail(e: unknown, fallback?: string) {
     if (e) console.error(e);
-    this.show(friendlyError(e, fallback), 'error', 4500);
+    const text = friendlyError(e, fallback);
+    // Longer messages (e.g. the AI explaining what's missing) need time to read.
+    this.show(text, 'error', Math.max(4500, text.length * 60));
   }
 
   dismiss(id: number) {

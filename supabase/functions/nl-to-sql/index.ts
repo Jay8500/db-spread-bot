@@ -5,7 +5,7 @@
 // { sql, explanation, statement_type }.
 // Body: { project_id: string, prompt: string }
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { cors, json } from '../_shared/http.ts';
+import { cors, json as baseJson } from '../_shared/http.ts';
 import { fetchSchema } from '../_shared/management.ts';
 
 // Tried in order. Google retires older models for new keys and the newest one
@@ -20,10 +20,12 @@ function system(schema: { table: string; columns: string }[]): string {
   const tables = schema.map((t) => `- ${t.table}(${t.columns})`).join('\n');
   return `You translate a plain-English request into one PostgreSQL statement for a Supabase (Postgres) database.
 
-Schema (public schema only):
+Schema (public tables unqualified; auth.users is Supabase's built-in user table):
 ${tables || '(no tables found)'}
 
 Rules:
+- For questions about users / people / sign-ups / who someone is, use auth.users (always write it schema-qualified as auth.users). Display names are usually in raw_user_meta_data->>'full_name' or raw_user_meta_data->>'name' — use coalesce over both, falling back to email. Join public tables to it via their user id / owner_id columns.
+- Never insert/update/delete anything in auth.users — it is read-only here.
 - Output ONLY a JSON object, no markdown fences, no prose outside it: {"sql": string, "explanation": string, "statement_type": "select"|"insert"|"update"|"delete"|"ddl"|"other"}
 - "sql" is exactly ONE statement, valid PostgreSQL, using only the tables/columns listed above. Never invent a table or column.
 - "explanation" is one short plain-English sentence describing exactly what the statement does, for someone who doesn't read SQL.
@@ -74,10 +76,30 @@ async function askGemini(apiKey: string, sys: string, prompt: string): Promise<s
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  // Per-step timings, sent as a Server-Timing header (DevTools → request →
+  // Timing tab) and logged, so slowness can be pinned to auth/schema/AI.
+  const marks: [string, number][] = [];
+  let last = performance.now();
+  const mark = (name: string) => {
+    const now = performance.now();
+    marks.push([name, now - last]);
+    last = now;
+  };
+  const json = (b: unknown, status = 200) => {
+    const timing = marks.map(([n, d]) => `${n};dur=${d.toFixed(0)}`).join(', ');
+    console.log('nl-to-sql timing', status, timing);
+    const res = baseJson(b, status);
+    if (timing) {
+      res.headers.set('Server-Timing', timing);
+      res.headers.set('Timing-Allow-Origin', '*');
+    }
+    return res;
+  };
   try {
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '');
     const { data: u } = await admin.auth.getUser(jwt);
+    mark('auth');
     if (!u?.user) return json({ error: 'Not signed in' }, 401);
 
     const body = await req.json().catch(() => ({}));
@@ -94,13 +116,16 @@ Deno.serve(async (req) => {
     if (!project) return json({ error: 'Project not found.' }, 404);
 
     const { data: pat } = await admin.rpc('get_project_pat', { p_project_id: projectId });
+    mark('project_and_token');
     if (!pat) return json({ error: 'No token saved for this project yet.' }, 400);
 
     const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) return json({ error: 'AI is not configured yet.' }, 500);
 
     const schema = await fetchSchema(pat, project.project_ref);
+    mark('schema');
     const text = await askGemini(apiKey, system(schema), prompt);
+    mark('ai');
 
     let parsed: { sql?: string; explanation?: string; statement_type?: string };
     try {
@@ -116,6 +141,7 @@ Deno.serve(async (req) => {
 
     return json({ sql, explanation: parsed.explanation || '', statement_type: statementType });
   } catch (e) {
+    mark('failed_step');
     console.error('nl-to-sql failed', e);
     const m = (e as Error)?.message ?? '';
     return json({ error: m.length < 150 ? m : 'Could not generate that query right now.' }, 400);

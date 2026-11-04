@@ -22,15 +22,25 @@ export async function managementQuery(pat: string, projectRef: string, sql: stri
   return Array.isArray(data) ? (data as MgmtRow[]) : [];
 }
 
-/** information_schema snapshot of the public schema, grounded for the model. */
+// auth.users holds who the app's users are (email, name in metadata) — the
+// most common thing asked about — so expose a safe subset of it. Password
+// hashes, tokens and other internals are deliberately left out.
+const AUTH_USER_COLUMNS = [
+  'id', 'email', 'phone', 'created_at', 'updated_at', 'last_sign_in_at',
+  'email_confirmed_at', 'raw_user_meta_data', 'raw_app_meta_data', 'banned_until', 'deleted_at',
+];
+
+/** information_schema snapshot (public schema + auth.users subset), grounded for the model. */
 export async function fetchSchema(pat: string, projectRef: string): Promise<{ table: string; columns: string }[]> {
+  const authCols = AUTH_USER_COLUMNS.map((c) => `'${c}'`).join(', ');
   const sql = `
-    select table_name,
+    select case when table_schema = 'public' then table_name else table_schema || '.' || table_name end as table_name,
            string_agg(column_name || ' ' || data_type || case when is_nullable = 'NO' then ' not null' else '' end, ', ' order by ordinal_position) as columns
     from information_schema.columns
     where table_schema = 'public'
-    group by table_name
-    order by table_name;
+       or (table_schema = 'auth' and table_name = 'users' and column_name in (${authCols}))
+    group by table_schema, table_name
+    order by table_schema desc, table_name;
   `;
   const rows = await managementQuery(pat, projectRef, sql);
   return rows.map((r) => ({ table: String(r['table_name']), columns: String(r['columns']) }));
