@@ -27,8 +27,8 @@ export interface SupabaseAccountProject {
   region: string;
   status: string;
   organization_id: string;
-  /** Already in this user's connected projects. */
-  connected: boolean;
+  /** Already connected: via this kind of login ('token' ones can be switched to the Supabase login), or false. */
+  connected: 'login' | 'token' | false;
 }
 
 export interface ConnectionProjects {

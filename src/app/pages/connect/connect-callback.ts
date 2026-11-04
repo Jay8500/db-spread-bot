@@ -39,20 +39,24 @@ import { friendlyError, ToastService, UserFacingError } from '../../core/toast.s
           </div>
           <div class="divide-y divide-slate-100 rounded-xl border border-slate-100">
             @for (p of r.projects; track p.ref) {
-              <label class="flex items-center gap-3 px-4 py-3" [class]="p.connected ? 'opacity-60' : 'cursor-pointer hover:bg-slate-50'">
+              <label class="flex items-center gap-3 px-4 py-3" [class]="p.connected === 'login' ? 'opacity-60' : 'cursor-pointer hover:bg-slate-50'">
                 <input
                   type="checkbox"
                   class="size-4 accent-[var(--brand)]"
-                  [checked]="p.connected || selected().has(p.ref)"
-                  [disabled]="p.connected"
+                  [checked]="p.connected === 'login' || selected().has(p.ref)"
+                  [disabled]="p.connected === 'login'"
                   (change)="toggle(p.ref)"
                 />
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm font-bold text-slate-800">{{ p.name }}</span>
                   <span class="block truncate font-mono text-xs text-slate-400">{{ p.ref }} · {{ p.region }}</span>
                 </span>
-                @if (p.connected) {
+                @if (p.connected === 'login') {
                   <span class="pill border-emerald-200 bg-emerald-50 text-emerald-700">Already added</span>
+                } @else if (p.connected === 'token') {
+                  <span class="pill border-sky-200 bg-sky-50 text-sky-700" title="Added earlier with a personal token — tick to switch it to this Supabase login">
+                    Added with token · switch?
+                  </span>
                 } @else if (p.status && p.status !== 'ACTIVE_HEALTHY') {
                   <span class="pill border-amber-200 bg-amber-50 text-amber-700">{{ statusLabel(p.status) }}</span>
                 }
@@ -67,7 +71,7 @@ import { friendlyError, ToastService, UserFacingError } from '../../core/toast.s
             } @else {
               <lucide-icon name="plus" class="size-4" />
             }
-            Add {{ selected().size || '' }} project{{ selected().size === 1 ? '' : 's' }}
+            {{ addLabel() }}
           </button>
           <a routerLink="/projects" class="btn-ghost">{{ selected().size ? 'Cancel' : 'Done' }}</a>
         </div>
@@ -101,6 +105,7 @@ export class ConnectCallback implements OnInit {
       const r = await this.supabase.finishSupabaseConnect(code, state);
       this.result.set(r);
       // Pre-select everything not yet added — the common case is "add them all".
+      // Token-added ones are offered but not ticked, so switching them is a deliberate choice.
       this.selected.set(new Set(r.projects.filter((p) => !p.connected).map((p) => p.ref)));
     } catch (e) {
       this.error.set(friendlyError(e, 'Could not finish connecting to Supabase.'));
@@ -110,7 +115,16 @@ export class ConnectCallback implements OnInit {
   }
 
   selectable() {
-    return (this.result()?.projects ?? []).filter((p) => !p.connected);
+    return (this.result()?.projects ?? []).filter((p) => p.connected !== 'login');
+  }
+
+  addLabel(): string {
+    const picked = (this.result()?.projects ?? []).filter((p) => this.selected().has(p.ref));
+    const switching = picked.filter((p) => p.connected === 'token').length;
+    const adding = picked.length - switching;
+    if (!picked.length) return 'Add projects';
+    if (!adding) return `Switch ${switching} to Supabase login`;
+    return `Add ${adding} project${adding === 1 ? '' : 's'}${switching ? ` + switch ${switching}` : ''}`;
   }
 
   toggle(ref: string) {
@@ -141,7 +155,7 @@ export class ConnectCallback implements OnInit {
     this.adding.set(true);
     try {
       const { added } = await this.supabase.addConnectionProjects(r.connection_id, [...this.selected()]);
-      this.toast.success(`${added} project${added === 1 ? '' : 's'} connected.`);
+      this.toast.success(`${added} project${added === 1 ? '' : 's'} now connected with your Supabase login.`);
       this.router.navigateByUrl('/projects');
     } catch (e) {
       this.toast.fail(e, 'Could not add those projects.');

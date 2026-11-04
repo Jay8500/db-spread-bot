@@ -43,10 +43,21 @@ async function ownConnection(admin: SupabaseClient, connectionId: string, userId
   return !!data;
 }
 
+/** connected: 'login' (already via Supabase login), 'token' (added with a personal token — can be switched), or false. */
 async function withConnectedFlag(admin: SupabaseClient, userId: string, projects: SupabaseProject[]) {
-  const { data } = await admin.from('connected_projects').select('project_ref').eq('owner_id', userId);
-  const have = new Set((data ?? []).map((r: { project_ref: string }) => r.project_ref));
-  return projects.map((p) => ({ ...p, connected: have.has(p.ref) }));
+  const { data } = await admin.from('connected_projects').select('project_ref, connection_id').eq('owner_id', userId);
+  const have = new Map((data ?? []).map((r: { project_ref: string; connection_id: string | null }) => [r.project_ref, r.connection_id]));
+  return projects.map((p) => ({ ...p, connected: have.has(p.ref) ? (have.get(p.ref) ? 'login' : 'token') : false }));
+}
+
+/** Drops this user's other connections that no project uses (abandoned or superseded sign-ins); Vault tokens go with them. */
+async function pruneUnusedConnections(admin: SupabaseClient, userId: string, keepId: string) {
+  const { data: conns } = await admin.from('supabase_connections').select('id').eq('owner_id', userId).neq('id', keepId);
+  if (!conns?.length) return;
+  const { data: used } = await admin.from('connected_projects').select('connection_id').eq('owner_id', userId).not('connection_id', 'is', null);
+  const usedIds = new Set((used ?? []).map((r: { connection_id: string }) => r.connection_id));
+  const unused = conns.map((c: { id: string }) => c.id).filter((id: string) => !usedIds.has(id));
+  if (unused.length) await admin.from('supabase_connections').delete().in('id', unused);
 }
 
 Deno.serve(async (req) => {
@@ -77,6 +88,7 @@ Deno.serve(async (req) => {
       const { data: conn, error } = await admin.from('supabase_connections').insert({ owner_id: userId }).select('id').single();
       if (error || !conn) throw error ?? new Error('Could not save the connection.');
       await saveTokens(admin, conn.id, tokens);
+      await pruneUnusedConnections(admin, userId, conn.id);
 
       const projects = await listProjects(tokens.access_token);
       return json({ connection_id: conn.id, projects: await withConnectedFlag(admin, userId, projects) });
