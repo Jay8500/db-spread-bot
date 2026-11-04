@@ -33,7 +33,18 @@ export interface SupabaseAccountProject {
 
 export interface ConnectionProjects {
   connection_id: string;
+  organization_name: string | null;
   projects: SupabaseAccountProject[];
+}
+
+/** One "Connect Supabase" grant = one Supabase organization. */
+export interface SupabaseConnection {
+  id: string;
+  organization_id: string | null;
+  organization_name: string | null;
+  /** User's own note, e.g. the account email (Supabase doesn't share it with apps). */
+  label: string | null;
+  created_at: string;
 }
 
 const OAUTH_STATE_KEY = 'dbbot-oauth';
@@ -257,6 +268,26 @@ export class SupabaseService {
       code_verifier: saved.verifier,
       redirect_uri: this.oauthRedirectUri,
     });
+  }
+
+  async listConnections(): Promise<SupabaseConnection[]> {
+    const { data, error } = await this.client
+      .from('supabase_connections')
+      .select('id, organization_id, organization_name, label, created_at')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  async renameConnection(id: string, label: string) {
+    const { error } = await this.client.from('supabase_connections').update({ label: label || null }).eq('id', id);
+    if (error) throw error;
+  }
+
+  /** Removes the connection, its stored tokens and every project added through it (from this app only). */
+  async deleteConnection(id: string) {
+    const { error } = await this.client.from('supabase_connections').delete().eq('id', id);
+    if (error) throw error;
   }
 
   connectionProjects(connectionId: string): Promise<ConnectionProjects> {

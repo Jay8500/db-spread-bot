@@ -9,7 +9,12 @@ import { friendlyError, ToastService, UserFacingError } from '../../core/toast.s
   selector: 'app-connect-callback',
   imports: [LucideAngularModule, RouterLink],
   template: `
-    <h1 class="section-title text-xl">Connect Supabase projects</h1>
+    <h1 class="section-title text-xl">
+      Connect Supabase projects
+      @if (result()?.organization_name; as org) {
+        <span class="font-normal text-slate-400">· {{ org }}</span>
+      }
+    </h1>
     <p class="mt-1 text-sm text-slate-500">Pick the projects you want to ask questions about. Each one starts read-only.</p>
 
     @if (loading()) {
@@ -99,10 +104,17 @@ export class ConnectCallback implements OnInit {
       if (q.get('error')) {
         throw new UserFacingError(q.get('error') === 'access_denied' ? 'You cancelled the Supabase sign-in.' : 'Supabase did not complete the sign-in.');
       }
-      const code = q.get('code');
-      const state = q.get('state');
-      if (!code || !state) throw new UserFacingError('Nothing to finish here — start from "Connect Supabase" on the Projects page.');
-      const r = await this.supabase.finishSupabaseConnect(code, state);
+      // "Add more projects" from an account that's already connected — no new sign-in needed.
+      const existing = q.get('connection');
+      let r;
+      if (existing) {
+        r = await this.supabase.connectionProjects(existing);
+      } else {
+        const code = q.get('code');
+        const state = q.get('state');
+        if (!code || !state) throw new UserFacingError('Nothing to finish here — start from "Connect Supabase" on the Projects page.');
+        r = await this.supabase.finishSupabaseConnect(code, state);
+      }
       this.result.set(r);
       // Pre-select everything not yet added — the common case is "add them all".
       // Token-added ones are offered but not ticked, so switching them is a deliberate choice.

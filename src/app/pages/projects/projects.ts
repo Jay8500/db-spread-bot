@@ -1,13 +1,15 @@
+import { DatePipe } from '@angular/common';
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 import { DialogService } from '../../core/dialog.service';
-import { ConnectedProject, SupabaseService } from '../../core/supabase.service';
+import { Router } from '@angular/router';
+import { ConnectedProject, SupabaseConnection, SupabaseService } from '../../core/supabase.service';
 import { ToastService } from '../../core/toast.service';
 
 @Component({
   selector: 'app-projects',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [FormsModule, LucideAngularModule, DatePipe],
   template: `
     <div class="flex items-center justify-between gap-3">
       <div>
@@ -99,7 +101,59 @@ import { ToastService } from '../../core/toast.service';
       </form>
     }
 
-    <div class="mt-5 space-y-3">
+    <!-- Supabase accounts (one card per approved organization) -->
+    @if (connections().length) {
+      <div class="mt-5">
+        <div class="mb-2 flex items-center justify-between gap-3">
+          <h2 class="text-sm font-bold text-slate-700">Supabase accounts</h2>
+          <button class="text-xs font-semibold text-brand hover:underline" (click)="showAccountHint.set(!showAccountHint())">
+            <lucide-icon name="plus" class="inline size-3.5" /> Connect another account
+          </button>
+        </div>
+        @if (showAccountHint()) {
+          <div class="card mb-3 space-y-3 border-brand/20 bg-brand/5 p-4 text-sm text-slate-600">
+            <p>
+              <strong>Another organization in the same Supabase login?</strong> Click Connect and pick it on Supabase's screen.
+            </p>
+            <p>
+              <strong>A different Supabase email?</strong> First log out on
+              <a href="https://supabase.com/dashboard" target="_blank" rel="noopener" class="font-semibold text-brand underline">supabase.com</a>
+              (or open this app in a private window), then click Connect and sign in with that email. Accounts you already connected keep working.
+            </p>
+            <button class="btn-primary" (click)="connectSupabase()" [disabled]="connecting()">
+              <lucide-icon name="plus" class="size-4" /> Connect Supabase
+            </button>
+          </div>
+        }
+        <div class="grid gap-3 sm:grid-cols-2">
+          @for (c of connections(); track c.id) {
+            <div class="card p-4">
+              <div class="flex items-start gap-3">
+                <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-600"><lucide-icon name="database" class="size-5" /></span>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-bold text-slate-800">{{ c.organization_name || 'Supabase organization' }}</p>
+                  <button class="group flex max-w-full items-center gap-1 text-left text-xs text-slate-400 hover:text-slate-600" (click)="renameConnection(c)" title="Edit label">
+                    <span class="truncate">{{ c.label || 'Add a label, e.g. the account email' }}</span>
+                    <lucide-icon name="pencil" class="size-3 shrink-0 opacity-60 group-hover:opacity-100" />
+                  </button>
+                  <p class="mt-1 text-xs text-slate-400">
+                    {{ projectCount(c.id) }} project{{ projectCount(c.id) === 1 ? '' : 's' }} · connected {{ c.created_at | date: 'MMM d, y' }}
+                  </p>
+                </div>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button class="btn-ghost" (click)="addFrom(c)"><lucide-icon name="plus" class="size-4" /> Add projects</button>
+                <button class="btn-ghost" (click)="connectSupabase()" title="Sign in to this organization again"><lucide-icon name="refresh-cw" class="size-4" /> Reconnect</button>
+                <button class="btn-danger" (click)="removeConnection(c)" title="Remove this account"><lucide-icon name="trash-2" class="size-4" /></button>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+      <h2 class="mt-6 text-sm font-bold text-slate-700">Projects</h2>
+    }
+
+    <div class="mt-3 space-y-3">
       @for (p of projects(); track p.id) {
         <div class="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div class="flex min-w-0 items-center gap-3">
@@ -107,7 +161,7 @@ import { ToastService } from '../../core/toast.service';
             <div class="min-w-0">
               <p class="truncate text-sm font-bold text-slate-800">{{ p.name }}</p>
               <p class="truncate font-mono text-xs text-slate-400">
-                {{ p.project_ref }} · <span class="font-sans">{{ p.connection_id ? 'Supabase login' : 'Access token' }}</span>
+                {{ p.project_ref }} · <span class="font-sans">{{ p.connection_id ? accountName(p.connection_id) : 'Access token' }}</span>
               </p>
             </div>
           </div>
@@ -150,6 +204,9 @@ export class Projects implements OnInit {
   protected readonly pat = signal('');
   protected readonly showPat = signal(false);
   protected readonly connecting = signal(false);
+  protected readonly connections = signal<SupabaseConnection[]>([]);
+  protected readonly showAccountHint = signal(false);
+  private readonly router = inject(Router);
 
   async ngOnInit() {
     await this.load();
@@ -157,7 +214,9 @@ export class Projects implements OnInit {
 
   async load() {
     try {
-      this.projects.set(await this.supabase.listProjects());
+      const [projects, connections] = await Promise.all([this.supabase.listProjects(), this.supabase.listConnections()]);
+      this.projects.set(projects);
+      this.connections.set(connections);
     } catch (e) {
       this.toast.fail(e, 'Could not load projects.');
     }
@@ -243,6 +302,55 @@ export class Projects implements OnInit {
       this.toast.success('Token updated.');
     } catch (e) {
       this.toast.fail(e, 'Could not update the token.');
+    }
+  }
+
+  projectCount(connectionId: string) {
+    return this.projects().filter((p) => p.connection_id === connectionId).length;
+  }
+
+  accountName(connectionId: string) {
+    const c = this.connections().find((x) => x.id === connectionId);
+    return c?.label || c?.organization_name || 'Supabase login';
+  }
+
+  addFrom(c: SupabaseConnection) {
+    this.router.navigate(['/connect/callback'], { queryParams: { connection: c.id } });
+  }
+
+  async renameConnection(c: SupabaseConnection) {
+    const label = await this.dialog.prompt({
+      title: `Label for ${c.organization_name || 'this account'}`,
+      label: 'Label (e.g. the Supabase account email)',
+      placeholder: 'name@example.com',
+      value: c.label ?? '',
+      confirmText: 'Save',
+    });
+    if (label === null || label === undefined) return;
+    try {
+      await this.supabase.renameConnection(c.id, label.trim().slice(0, 120));
+      this.connections.update((list) => list.map((x) => (x.id === c.id ? { ...x, label: label.trim() || null } : x)));
+    } catch (e) {
+      this.toast.fail(e, 'Could not save the label.');
+    }
+  }
+
+  async removeConnection(c: SupabaseConnection) {
+    const n = this.projectCount(c.id);
+    const ok = await this.dialog.confirm({
+      title: `Remove ${c.label || c.organization_name || 'this account'}?`,
+      message: `Its ${n} project${n === 1 ? '' : 's'} will be removed from this app too. Nothing changes in Supabase itself — you can connect it again any time.`,
+      tone: 'danger',
+      confirmText: 'Remove',
+    });
+    if (!ok) return;
+    try {
+      await this.supabase.deleteConnection(c.id);
+      this.connections.update((list) => list.filter((x) => x.id !== c.id));
+      this.projects.update((list) => list.filter((p) => p.connection_id !== c.id));
+      this.toast.success('Account removed.');
+    } catch (e) {
+      this.toast.fail(e, 'Could not remove that account.');
     }
   }
 

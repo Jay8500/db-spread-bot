@@ -38,6 +38,19 @@ async function listProjects(accessToken: string): Promise<SupabaseProject[]> {
   }));
 }
 
+/** The organization the user approved on the consent screen (an OAuth grant covers one org). */
+async function approvedOrganization(accessToken: string): Promise<{ id: string; name: string } | null> {
+  try {
+    const res = await fetch('https://api.supabase.com/v1/organizations', { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) return null;
+    const orgs = (await res.json()) as { id?: string; slug?: string; name?: string }[];
+    const o = orgs[0];
+    return o ? { id: String(o.id ?? o.slug), name: String(o.name ?? o.slug ?? 'Supabase organization') } : null;
+  } catch {
+    return null;
+  }
+}
+
 async function ownConnection(admin: SupabaseClient, connectionId: string, userId: string): Promise<boolean> {
   const { data } = await admin.from('supabase_connections').select('id').eq('id', connectionId).eq('owner_id', userId).maybeSingle();
   return !!data;
@@ -85,13 +98,38 @@ Deno.serve(async (req) => {
       } catch {
         return json({ error: 'That Supabase sign-in link has expired — try connecting again.' }, 400);
       }
-      const { data: conn, error } = await admin.from('supabase_connections').insert({ owner_id: userId }).select('id').single();
-      if (error || !conn) throw error ?? new Error('Could not save the connection.');
-      await saveTokens(admin, conn.id, tokens);
-      await pruneUnusedConnections(admin, userId, conn.id);
+      const org = await approvedOrganization(tokens.access_token);
+      // Same organization connected before → refresh that connection's tokens
+      // (a "Reconnect") instead of creating a duplicate.
+      let connId: string | null = null;
+      if (org) {
+        const { data: existing } = await admin
+          .from('supabase_connections')
+          .select('id')
+          .eq('owner_id', userId)
+          .eq('organization_id', org.id)
+          .maybeSingle();
+        connId = existing?.id ?? null;
+        if (connId) await admin.from('supabase_connections').update({ organization_name: org.name }).eq('id', connId);
+      }
+      if (!connId) {
+        const { data: conn, error } = await admin
+          .from('supabase_connections')
+          .insert({ owner_id: userId, organization_id: org?.id ?? null, organization_name: org?.name ?? null })
+          .select('id')
+          .single();
+        if (error || !conn) throw error ?? new Error('Could not save the connection.');
+        connId = conn.id as string;
+      }
+      await saveTokens(admin, connId, tokens);
+      await pruneUnusedConnections(admin, userId, connId);
 
       const projects = await listProjects(tokens.access_token);
-      return json({ connection_id: conn.id, projects: await withConnectedFlag(admin, userId, projects) });
+      return json({
+        connection_id: connId,
+        organization_name: org?.name ?? null,
+        projects: await withConnectedFlag(admin, userId, projects),
+      });
     }
 
     const connectionId = String(body.connection_id ?? '');
@@ -101,7 +139,12 @@ Deno.serve(async (req) => {
 
     if (action === 'projects') {
       const projects = await listProjects(await connectionAccessToken(admin, connectionId));
-      return json({ connection_id: connectionId, projects: await withConnectedFlag(admin, userId, projects) });
+      const { data: c } = await admin.from('supabase_connections').select('organization_name').eq('id', connectionId).single();
+      return json({
+        connection_id: connectionId,
+        organization_name: c?.organization_name ?? null,
+        projects: await withConnectedFlag(admin, userId, projects),
+      });
     }
 
     if (action === 'add') {
