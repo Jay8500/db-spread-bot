@@ -3,8 +3,8 @@
 // Vault, server-side only). The anon key is safe to ship; RLS protects it.
 export const environment = {
   production: true,
-  supabaseUrl: 'REPLACE_WITH_NEW_CONTROL_PLANE_SUPABASE_URL',
-  supabaseAnonKey: 'REPLACE_WITH_NEW_CONTROL_PLANE_SUPABASE_ANON_KEY',
+  supabaseUrl: 'https://dxmgmfoufotcobvuhqrw.supabase.co',
+  supabaseAnonKey: 'sb_publishable_qhzQPEYx-Q8PzSK7UGGJFw_4LllN8Wa',
   brand: {
     name: 'Spread Apps',
     product: 'DB Spread Bot',
